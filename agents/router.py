@@ -1,11 +1,15 @@
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 from typing import Literal
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 # Using a hardcoded model for structure; can be parameterized later
 try:
-    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+    llm = ChatGroq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
 except Exception:
     # Fallback if no API key is set yet
     llm = None
