@@ -5,24 +5,21 @@ from typing import Optional
 from dotenv import load_dotenv
 import os
 
-from graph import create_portfolio_graph
+from orchestrator import orchestrate_query
 
 # Load environment variables
 load_dotenv()
 
 app = FastAPI(title="Portfolio AI Service")
 
-# Configure CORS for Next.js app
+# Configure CORS - loosened for debugging
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], # Adjust in production
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Initialize the LangGraph
-app_graph = create_portfolio_graph()
 
 class ChatRequest(BaseModel):
     message: str
@@ -33,23 +30,25 @@ async def health_check():
     return {"status": "ok"}
 
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
-    # Minimal synchronous execution for now, stream later
-    inputs = {"messages": [("user", request.message)]}
-    
-    config = {"configurable": {"thread_id": request.session_id}}
-    
-    # Run the graph
-    result = app_graph.invoke(inputs, config=config)
-    
-    # Extract the last AI message
-    last_msg = result["messages"][-1]
-    
-    return {
-        "response": last_msg.content,
-        "session_id": request.session_id,
-        "metadata": result.get("metadata", {})
-    }
+def chat_endpoint(request: ChatRequest):
+    try:
+        # Pass user message to orchestrator
+        result = orchestrate_query(request.message)
+        
+        return {
+            "response": result["response"],
+            "session_id": request.session_id,
+            "trace": result["trace"]
+        }
+    except Exception as e:
+        print(f"CRITICAL ERROR IN /chat: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "response": f"Internal Server Error: {str(e)}",
+            "session_id": request.session_id,
+            "trace": {"error": True, "detail": str(e)}
+        }
 
 if __name__ == "__main__":
     import uvicorn
