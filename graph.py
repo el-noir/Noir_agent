@@ -114,9 +114,10 @@ def identify_intent(state: AgentState):
     system_prompt = (
         "Analyze the user's message to decide the intent. Respond with exactly one word: 'portfolio' or 'calendar'.\n"
         "RULES:\n"
-        "1. If the user mentions meetings, tomorrow, scheduling, booking, time, or calendar -> 'calendar'.\n"
-        "2. If the user is just providing their name, email, or a time (answering a follow-up question to book a meeting) -> 'calendar'.\n"
-        "3. If they ask about Mudasir's skills, projects, background, resume, or 'who is he' -> 'portfolio'."
+        "1. ESCAPE HATCH (CRITICAL): If the user says 'no', 'nope', 'nevermind', 'stop', 'cancel', or indicates they do NOT want a meeting anymore -> 'portfolio'.\n"
+        "2. If the user mentions meetings, tomorrow, scheduling, booking, time, or calendar -> 'calendar'.\n"
+        "3. If the user is just providing their name, email, or a time (answering a follow-up question to book a meeting) -> 'calendar'.\n"
+        "4. If they ask about Mudasir's skills, projects, background, resume, or 'who is he' -> 'portfolio'."
     )
     
     response = llm.invoke([
@@ -141,7 +142,8 @@ def portfolio_chatbot(state: AgentState):
         "2. Speak confidently and directly. NEVER use robotic filler phrases like 'It appears that', 'It seems that', or 'Based on the provided context'. Answer directly as a knowledgeable AI.\n"
         "3. Only use bullet points or detailed lists if the user specifically asks for 'details', 'everything', 'list', or 'tell me more'.\n"
         "4. PROACTIVE SCHEDULING: You are Mudasir's personal representative. If the user asks for Mudasir, wants to talk to him, or wants to hire him, proactively tell them that you can schedule a meeting with him right now in this chat.\n"
-        "5. TOOL USAGE: ALWAYS use the native tools correctly. NEVER output raw tool syntax like `<function=...>` or `(function=...` in your chat text."
+        "5. GRACEFUL CANCELLATION: If a user changes their mind and says they don't want a meeting anymore, simply say 'No problem, let me know if you change your mind or need anything else!'. Do NOT keep asking them to schedule.\n"
+        "6. TOOL USAGE: ALWAYS use the native tools correctly. NEVER output raw tool syntax like `<function=...>` or `(function=...` in your chat text."
     )
     
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
@@ -191,6 +193,7 @@ async def calendar_chatbot(state: AgentState):
         "  1. Their Name\n"
         "  2. Their Email Address\n"
         "  3. The proposed time and date\n"
+        "ESCAPE HATCH: If the user says 'no', 'nevermind', or clearly refuses to provide their email/details, DO NOT keep asking. Acknowledge their refusal politely and stop asking for details.\n"
         "CRITICAL SEQUENTIAL GATHERING: If multiple details are missing, DO NOT ask for all of them at once. "
         "Ask for them ONE BY ONE. For example, if you have nothing, just ask 'What is your name?'. Once they reply, ask 'What is your email?', and finally 'What time would you like to meet?'.\n"
         "ALWAYS check the conversation history first. Do not ask for information they have already provided.\n"
