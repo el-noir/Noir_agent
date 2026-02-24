@@ -40,9 +40,10 @@ def get_profile_tool() -> str:
     return json.dumps(getProfile())
 
 @tool
-def list_projects_tool(filters: list[str] = None) -> str:
-    """Searches the portfolio for projects matching optional filters like ['React', 'Python', 'AI']."""
-    return json.dumps(listProjects(filters))
+def list_projects_tool(filters: str = None) -> str:
+    """Searches the portfolio for projects matching optional filters like 'React, Python, AI'. Pass a comma-separated string if any filters apply."""
+    filter_list = [f.strip() for f in filters.split(',')] if filters else None
+    return json.dumps(listProjects(filter_list))
 
 @tool
 def explain_project_tool(name: str) -> str:
@@ -99,8 +100,12 @@ def portfolio_chatbot(state: AgentState):
     llm_with_tools = llm.bind_tools(portfolio_tools)
     
     system_prompt = (
-        "You are Mudasir Shah's Portfolio Specialist. "
-        "Use the provided tools to answer questions about his experience, projects, and skills."
+        "You are Mudasir Shah's AI Assistant, 'Noir AI'. "
+        "Use the provided tools to answer questions about his experience, projects, and skills.\n"
+        "CRITICAL INSTRUCTIONS:\n"
+        "1. BE EXTREMELY CONCISE. If the user asks a basic question like 'Who is Mudasir Shah?', provide a short 1-2 sentence answer (e.g. 'Mudasir is a Full-Stack Developer and AI Specialist.'). DO NOT list all his skills or history unless explicitly asked.\n"
+        "2. Speak confidently and directly. NEVER use robotic filler phrases like 'It appears that', 'It seems that', or 'Based on the provided context'. Answer directly as a knowledgeable AI.\n"
+        "3. Only use bullet points or detailed lists if the user specifically asks for 'details', 'everything', 'list', or 'tell me more'."
     )
     
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
@@ -136,11 +141,14 @@ async def calendar_chatbot(state: AgentState):
     current_time = now.strftime("%A, %B %d, %Y %I:%M %p")
     
     system_prompt = (
-        f"You are the 'Daily Control Engine'—a high-precision personal executive assistant.\n"
+        f"You are Mudasir Shah's AI Assistant, 'Noir AI'.\n"
         f"Current Time: {current_time}\n"
-        "Manage the user's schedule with accuracy. Before creating events, check for conflicts.\n"
+        "Manage the user's schedule. Before creating events, check for conflicts.\n"
         "IMPORTANT: When calling calendar tools, ALWAYS use the account name 'normal'.\n"
-        "CRITICAL: The calendar ID for Mudasir Shah is ALWAYS 'primary'. Do not use any other calendar ID."
+        "CRITICAL: The calendar ID for Mudasir Shah is ALWAYS 'primary'. Do not use any other calendar ID.\n"
+        "TONE & FORMAT INSTRUCTIONS:\n"
+        "1. Speak confidently and directly. NEVER use phrases like 'It appears that', 'It seems that', or 'Based on the schedule'. Answer directly.\n"
+        "2. BE CONCISE. Do not add fluff. Just state the schedule."
     )
     
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
