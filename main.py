@@ -10,7 +10,7 @@ from orchestrator import orchestrate_query
 # Load environment variables
 load_dotenv()
 
-app = FastAPI(title="Portfolio AI Service")
+app = FastAPI(title="Noir AI Service")
 
 # Configure CORS - loosened for debugging
 app.add_middleware(
