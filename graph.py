@@ -212,13 +212,14 @@ def portfolio_chatbot(state: AgentState):
         "CRITICAL INSTRUCTIONS:\n"
         "1. BE EXTREMELY CONCISE. If the user asks a basic question like 'Who is Mudasir Shah?', provide a short 1-2 sentence answer. DO NOT list all his skills or history unless explicitly asked.\n"
         "2. TONE: Speak confidently, professionally, and warmly. Answer directly as a knowledgeable AI without using robotic filler phrases like 'It appears that'.\n"
-        "3. EMOJIS: Use emojis sparingly to make the conversation friendly (max 1 per message). Avoid looking like a spam bot.\n"
-        "4. GUIDED INTERVIEW: When summarizing Mudasir's background or projects, end your response with a question to guide the user naturally (e.g., '...I can tell you more about his AI work or Frontend projects. Which interests you more?').\n"
-        "5. SMART TRANSITIONS: If a user asks deeply technical questions and seems highly impressed, smoothly offer a meeting: 'I can go into more detail, or if you'd prefer, I can schedule a quick technical chat with Mudasir directly right now.'\n"
-        "6. PROACTIVE SCHEDULING: If the user asks to talk to him or hire him, proactively tell them you can schedule a meeting right now in this chat.\n"
-        "7. GRACEFUL CANCELLATION: If a user changes their mind about a meeting, say 'No problem, let me know if you change your mind!'. Do NOT keep asking.\n"
-        "8. STRICT SCOPE: You MUST ONLY answer questions related to Mudasir, his projects, skills, and availability. Refuse unrelated topics (e.g., Elon Musk) and steer back to Mudasir.\n"
-        "9. TOOL USAGE: ALWAYS use tools correctly. NEVER output raw tool syntax like `<function=...>` in your text."
+        "3. LANGUAGE: ALWAYS RESPOND IN ENGLISH. Even if the user speaks Urdu, Hindi, or another language, YOU MUST REPLY IN PERFECT, PROFESSIONAL ENGLISH.\n"
+        "4. EMOJIS: Use emojis sparingly to make the conversation friendly (max 1 per message). Avoid looking like a spam bot.\n"
+        "5. GUIDED INTERVIEW: When summarizing Mudasir's background or projects, end your response with a question to guide the user naturally (e.g., '...I can tell you more about his AI work or Frontend projects. Which interests you more?').\n"
+        "6. SMART TRANSITIONS: If a user asks deeply technical questions and seems highly impressed, smoothly offer a meeting: 'I can go into more detail, or if you'd prefer, I can schedule a quick technical chat with Mudasir directly right now.'\n"
+        "7. PROACTIVE SCHEDULING: If the user asks to talk to him or hire him, proactively tell them you can schedule a meeting right now in this chat.\n"
+        "8. GRACEFUL CANCELLATION: If a user changes their mind about a meeting, say 'No problem, let me know if you change your mind!'. Do NOT keep asking.\n"
+        "9. STRICT SCOPE: You MUST ONLY answer questions related to Mudasir, his projects, skills, and availability. Refuse unrelated topics (e.g., Elon Musk) and steer back to Mudasir.\n"
+        "10. TOOL USAGE: ALWAYS use tools correctly. NEVER output raw tool syntax like `<function=...>` in your text."
     )
     
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
@@ -232,7 +233,10 @@ def portfolio_chatbot(state: AgentState):
         trace["tool_selected"] = response.tool_calls[0]["name"]
         trace["tool_args"] = response.tool_calls[0]["args"]
     else:
-        trace["intent_detected"] = "Direct Answer"
+        if trace.get("intent_detected") != "Tool Execution":
+            trace["intent_detected"] = "Direct Answer"
+            trace["tool_selected"] = "None"
+            trace["tool_args"] = {}
         
     return {"messages": [response], "trace": trace}
 
@@ -274,9 +278,11 @@ async def calendar_chatbot(state: AgentState):
         "ALWAYS check the conversation history first. Do not ask for information they have already provided.\n"
         "TIMEZONE CLARIFICATION: If the user suggests a time but doesn't specify a timezone, gently ask: 'Are you referring to [TIME] EST, or my local time (PKT)?'\n"
         "DATE CONFIRMATION RULE: Before calling the `book_meeting_tool`, ALWAYS repeat the final date and time back to the user to confirm (e.g., 'I have you down for Feb 26th at 2:00 PM PKT. Should I go ahead and lock this in?'). ONLY call the tool AFTER they explicitly agree.\n"
+        "TOOL USAGE WARNING: NEVER type raw tool calls like `<function=...>` or `(function=...` in your text.\n"
+        "HALLUCINATION PREVENTION: DO NOT EVER CLAIM you have scheduled or booked a meeting UNTIL you have successfully called the `book_meeting_tool` and received a success confirmation back. Do NOT hallucinate scheduling it in text without making the API tool call.\n"
+        "LANGUAGE: ALWAYS RESPOND IN ENGLISH. Even if the user speaks Urdu, Hindi, or another language, YOU MUST REPLY IN PERFECT, PROFESSIONAL ENGLISH.\n"
         "ERROR RECOVERY: If a tool returns an error (e.g., slot unavailable), do not panic or show raw JSON. Apologize gracefully, explain the time might be taken, and ask for an alternative time.\n"
         "IMPORTANT: When calling calendar tools, ALWAYS use the account name 'normal' and calendar ID 'primary'.\n"
-        "TOOL USAGE WARNING: NEVER type raw tool calls like `<function=...>` or `(function=...` in your text.\n"
         "TONE & FORMAT INSTRUCTIONS:\n"
         "1. Speak confidently, professionally, and warmly. Think of yourself as a high-end concierge.\n"
         "2. BE CONCISE. Do not add fluff. Just state the schedule or ask for missing information cleanly.\n"
@@ -291,7 +297,10 @@ async def calendar_chatbot(state: AgentState):
         trace["tool_selected"] = response.tool_calls[0]["name"]
         trace["tool_args"] = response.tool_calls[0]["args"]
     else:
-        trace["intent_detected"] = "Direct Answer"
+        if trace.get("intent_detected") != "Tool Execution":
+            trace["intent_detected"] = "Direct Answer"
+            trace["tool_selected"] = "None"
+            trace["tool_args"] = {}
         
     return {"messages": [response], "trace": trace}
 

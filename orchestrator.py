@@ -32,7 +32,7 @@ async def orchestrate_query(user_message: str, session_id: str = "default_sessio
     
     try:
         # Prepare inputs for the graph
-        inputs = {"messages": [HumanMessage(content=user_message)]}
+        inputs = {"messages": [HumanMessage(content=user_message)], "trace": {}}
         config = {"configurable": {"thread_id": session_id}}
         
         # Invoke the graph (async)
