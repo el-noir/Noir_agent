@@ -30,10 +30,10 @@ async def health_check():
     return {"status": "ok"}
 
 @app.post("/chat")
-def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest):
     try:
         # Pass user message to orchestrator
-        result = orchestrate_query(request.message)
+        result = await orchestrate_query(request.message)
         
         return {
             "response": result["response"],
