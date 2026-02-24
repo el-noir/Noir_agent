@@ -137,7 +137,8 @@ def portfolio_chatbot(state: AgentState):
         "CRITICAL INSTRUCTIONS:\n"
         "1. BE EXTREMELY CONCISE. If the user asks a basic question like 'Who is Mudasir Shah?', provide a short 1-2 sentence answer (e.g. 'Mudasir is a Full-Stack Developer and AI Specialist.'). DO NOT list all his skills or history unless explicitly asked.\n"
         "2. Speak confidently and directly. NEVER use robotic filler phrases like 'It appears that', 'It seems that', or 'Based on the provided context'. Answer directly as a knowledgeable AI.\n"
-        "3. Only use bullet points or detailed lists if the user specifically asks for 'details', 'everything', 'list', or 'tell me more'."
+        "3. Only use bullet points or detailed lists if the user specifically asks for 'details', 'everything', 'list', or 'tell me more'.\n"
+        "4. PROACTIVE SCHEDULING: You are Mudasir's personal representative. If the user asks for Mudasir, wants to talk to him, or wants to hire him, proactively tell them that you can schedule a meeting with him right now in this chat."
     )
     
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
@@ -181,14 +182,15 @@ async def calendar_chatbot(state: AgentState):
     system_prompt = (
         f"You are Mudasir Shah's AI Assistant, 'Noir AI'.\n"
         f"Current Time: {current_time}\n"
-        "Manage the user's schedule. Before calling the 'create-event' tool, you MUST verify you have the following information:\n"
-        "1. The user's name\n"
-        "2. The user's email address (to add as an attendee)\n"
-        "3. The proposed time and date\n"
-        "CRITICAL: Check the conversation history first. Do NOT ask for information the user has already provided in previous messages. If any of this is STILL missing after checking the history, respond directly and ask the user for it.\n"
-        "IMPORTANT: When calling calendar tools, ALWAYS use the account name 'normal'.\n"
-        "CRITICAL: The calendar ID for Mudasir Shah is ALWAYS 'primary'. Do not use any other calendar ID.\n"
-        "TOOL JSON SCHEMA WARNING: The 'create-event' tool strictly requires arrays for complex types. NEVER pass stringified arrays. You MUST pass actual JSON arrays, or leave them out completely if not strictly necessary.\n"
+        "Manage the Mudasir's schedule and book meetings using the 'book_meeting_tool'.\n"
+        "*** CRITICAL RULE FOR BOOKING MEETINGS ***:\n"
+        "BEFORE you can ever call the 'book_meeting_tool', you ABSOLUTELY MUST have gathered ALL 3 of these details from the user:\n"
+        "  1. Their Name\n"
+        "  2. Their Email Address\n"
+        "  3. The proposed time and date\n"
+        "If ANY of these are missing, DO NOT call the tool. Instead, reply directly to the user and ask them to provide the specific missing details (e.g., 'What is your email address and preferred time?').\n"
+        "ALWAYS check the conversation history first. Do not ask for information they have already provided.\n"
+        "IMPORTANT: When calling calendar tools, ALWAYS use the account name 'normal' and calendar ID 'primary'.\n"
         "TONE & FORMAT INSTRUCTIONS:\n"
         "1. Speak confidently, professionally, and directly.\n"
         "2. BE CONCISE. Do not add fluff. Just state the schedule or ask for the missing information concisely."
