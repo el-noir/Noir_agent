@@ -9,6 +9,7 @@ from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 
 from tools.implementation import (
@@ -204,4 +205,5 @@ async def create_portfolio_graph():
         
     workflow.add_conditional_edges("tools", return_to_agent, ["portfolio_chatbot", "calendar_chatbot"])
     
-    return workflow.compile()
+    memory = MemorySaver()
+    return workflow.compile(checkpointer=memory)

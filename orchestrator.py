@@ -12,9 +12,9 @@ async def get_graph():
         _graph_app = await create_portfolio_graph()
     return _graph_app
 
-async def orchestrate_query(user_message: str):
+async def orchestrate_query(user_message: str, session_id: str = "default_session"):
     """
-    Core orchestrator using LangGraph multi-agent system (async).
+    Core orchestrator using LangGraph multi-agent system (async) with memory.
     """
     start_time = time.time()
     
@@ -33,10 +33,11 @@ async def orchestrate_query(user_message: str):
     try:
         # Prepare inputs for the graph
         inputs = {"messages": [HumanMessage(content=user_message)]}
+        config = {"configurable": {"thread_id": session_id}}
         
         # Invoke the graph (async)
         app = await get_graph()
-        result = await app.ainvoke(inputs)
+        result = await app.ainvoke(inputs, config=config)
         
         final_answer = result["messages"][-1].content
         trace = result.get("trace", {
