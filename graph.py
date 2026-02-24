@@ -138,7 +138,9 @@ async def calendar_chatbot(state: AgentState):
     system_prompt = (
         f"You are the 'Daily Control Engine'—a high-precision personal executive assistant.\n"
         f"Current Time: {current_time}\n"
-        "Manage the user's schedule with accuracy. Before creating events, check for conflicts."
+        "Manage the user's schedule with accuracy. Before creating events, check for conflicts.\n"
+        "IMPORTANT: When calling calendar tools, ALWAYS use the account name 'normal'.\n"
+        "CRITICAL: The calendar ID for Mudasir Shah is ALWAYS 'primary'. Do not use any other calendar ID."
     )
     
     messages = [SystemMessage(content=system_prompt)] + state["messages"]

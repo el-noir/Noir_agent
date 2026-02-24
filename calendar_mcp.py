@@ -46,8 +46,13 @@ async def get_calendar_tools() -> List[BaseTool]:
         # MultiServerMCPClient.get_tools() returns a list of tools
         print(f"Requesting tools from MCP server at {creds_path}...")
         tools = await asyncio.wait_for(client.get_tools(), timeout=60.0)
-        print(f"Successfully loaded {len(tools)} tools from Google Calendar MCP.")
-        return tools
+        
+        # Filter tools to keep JSON schema small and avoid Groq 413 Token Limits
+        allowed_tools = {"list-calendars", "list-events", "create-event", "update-event", "delete-event"}
+        filtered_tools = [t for t in tools if t.name in allowed_tools]
+        
+        print(f"Successfully loaded {len(filtered_tools)} tools from Google Calendar MCP (down from {len(tools)}).")
+        return filtered_tools
     except asyncio.TimeoutError:
         print("Error: MCP connection timed out after 60 seconds.")
         return []

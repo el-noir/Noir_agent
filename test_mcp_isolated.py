@@ -6,11 +6,13 @@ async def test_mcp():
     creds_path = os.path.abspath("credentials.json")
     print(f"Testing MCP with creds: {creds_path}")
     
+    node_entry = os.path.join(os.path.dirname(os.path.abspath(__file__)), "node_modules", "@cocal", "google-calendar-mcp", "build", "index.js")
+    
     client = MultiServerMCPClient(
         {
             "google-calendar": {
-                "command": "npx.cmd",
-                "args": ["-y", "@cocal/google-calendar-mcp"],
+                "command": "node",
+                "args": [node_entry],
                 "transport": "stdio",
                 "env": {
                     "GOOGLE_OAUTH_CREDENTIALS": creds_path,
