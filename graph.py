@@ -90,6 +90,8 @@ def book_meeting_tool(name: str, email: str, start_time: str, end_time: str, des
             return ts + "+05:00"
         return ts
 
+    import uuid
+    
     payload = {
         "account": "normal",
         "calendarId": "primary",
@@ -98,7 +100,14 @@ def book_meeting_tool(name: str, email: str, start_time: str, end_time: str, des
         "start": add_tz(start_time),
         "end": add_tz(end_time),
         "attendees": [{"email": email, "optional": False, "responseStatus": "needsAction"}],
-        "timeZone": "Asia/Karachi"
+        "timeZone": "Asia/Karachi",
+        "sendUpdates": "all",
+        "conferenceData": {
+            "createRequest": {
+                "requestId": f"meet-{uuid.uuid4().hex}",
+                "conferenceSolutionKey": {"type": "hangoutsMeet"}
+            }
+        }
     }
     
     # Path to credentials.json in the same directory
@@ -280,6 +289,7 @@ async def calendar_chatbot(state: AgentState):
         "DATE CONFIRMATION RULE: Before calling the `book_meeting_tool`, ALWAYS repeat the final date and time back to the user to confirm (e.g., 'I have you down for Feb 26th at 2:00 PM PKT. Should I go ahead and lock this in?'). ONLY call the tool AFTER they explicitly agree.\n"
         "TOOL USAGE WARNING: NEVER type raw tool calls like `<function=...>` or `(function=...` in your text.\n"
         "HALLUCINATION PREVENTION: DO NOT EVER CLAIM you have scheduled or booked a meeting UNTIL you have successfully called the `book_meeting_tool` and received a success confirmation back. Do NOT hallucinate scheduling it in text without making the API tool call.\n"
+        "MEETING LINK EXPORT: The `book_meeting_tool` will automatically generate a Google Meet link and send an email invite. Once booked, parse the tool response for the Google Meet link, and explicitly provide it to the user in your final message!\n"
         "LANGUAGE: ALWAYS RESPOND IN ENGLISH. Even if the user speaks Urdu, Hindi, or another language, YOU MUST REPLY IN PERFECT, PROFESSIONAL ENGLISH.\n"
         "ERROR RECOVERY: If a tool returns an error (e.g., slot unavailable), do not panic or show raw JSON. Apologize gracefully, explain the time might be taken, and ask for an alternative time.\n"
         "IMPORTANT: When calling calendar tools, ALWAYS use the account name 'normal' and calendar ID 'primary'.\n"
