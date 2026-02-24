@@ -48,7 +48,7 @@ async def get_calendar_tools() -> List[BaseTool]:
         tools = await asyncio.wait_for(client.get_tools(), timeout=60.0)
         
         # Filter tools to keep JSON schema small and avoid Groq 413 Token Limits
-        allowed_tools = {"list-calendars", "list-events", "create-event", "update-event", "delete-event"}
+        allowed_tools = {"list-calendars", "list-events", "create-event", "update-event"}
         filtered_tools = [t for t in tools if t.name in allowed_tools]
         
         print(f"Successfully loaded {len(filtered_tools)} tools from Google Calendar MCP (down from {len(tools)}).")

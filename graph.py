@@ -147,6 +147,7 @@ async def calendar_chatbot(state: AgentState):
         "Manage the user's schedule. Before creating events, check for conflicts.\n"
         "IMPORTANT: When calling calendar tools, ALWAYS use the account name 'normal'.\n"
         "CRITICAL: The calendar ID for Mudasir Shah is ALWAYS 'primary'. Do not use any other calendar ID.\n"
+        "TOOL JSON SCHEMA WARNING: The 'create-event' tool strictly requires arrays for complex types. NEVER pass stringified arrays (e.g., '[\"email\"]') for the 'attendees' or 'reminders.overrides' parameters. You MUST pass actual JSON arrays, or leave them out completely if not strictly necessary.\n"
         "TONE & FORMAT INSTRUCTIONS:\n"
         "1. Speak confidently and directly. NEVER use phrases like 'It appears that', 'It seems that', or 'Based on the schedule'. Answer directly.\n"
         "2. BE CONCISE. Do not add fluff. Just state the schedule."
