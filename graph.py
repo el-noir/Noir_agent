@@ -112,9 +112,11 @@ def identify_intent(state: AgentState):
     user_input = state["messages"][-1].content
     
     system_prompt = (
-        "Analyze the user's message and decide if it's related to Mudasir's PORTFOLIO (projects, skills, bio, job fit) "
-        "or his CALENDAR/SCHEDULING (meetings, what he's doing today, booking time). "
-        "Respond with exactly one word: 'portfolio' or 'calendar'."
+        "Analyze the user's message to decide the intent. Respond with exactly one word: 'portfolio' or 'calendar'.\n"
+        "RULES:\n"
+        "1. If the user mentions meetings, tomorrow, scheduling, booking, time, or calendar -> 'calendar'.\n"
+        "2. If the user is just providing their name, email, or a time (answering a follow-up question to book a meeting) -> 'calendar'.\n"
+        "3. If they ask about Mudasir's skills, projects, background, resume, or 'who is he' -> 'portfolio'."
     )
     
     response = llm.invoke([
@@ -189,8 +191,10 @@ async def calendar_chatbot(state: AgentState):
         "  1. Their Name\n"
         "  2. Their Email Address\n"
         "  3. The proposed time and date\n"
-        "If ANY of these are missing, DO NOT call the tool. Instead, reply directly to the user and ask them to provide the specific missing details (e.g., 'What is your email address and preferred time?').\n"
+        "CRITICAL SEQUENTIAL GATHERING: If multiple details are missing, DO NOT ask for all of them at once. "
+        "Ask for them ONE BY ONE. For example, if you have nothing, just ask 'What is your name?'. Once they reply, ask 'What is your email?', and finally 'What time would you like to meet?'.\n"
         "ALWAYS check the conversation history first. Do not ask for information they have already provided.\n"
+        "TIME CONVERSION RULE: When the user gives a relative time like 'tomorrow at 4pm', you must calculate the correct ISO 8601 string yourself based on the 'Current Time' provided above. SILENTLY calculate it and IMMEDIATELY call the 'book_meeting_tool'. DO NOT explain your calculation to the user, DO NOT ask them if it's correct, and DO NOT ask about end times (just assume +1 hour). Just call the tool.\n"
         "IMPORTANT: When calling calendar tools, ALWAYS use the account name 'normal' and calendar ID 'primary'.\n"
         "TOOL USAGE WARNING: NEVER type raw tool calls like `<function=...>` or `(function=...` in your conversational text output. It breaks the system.\n"
         "TONE & FORMAT INSTRUCTIONS:\n"
