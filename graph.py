@@ -79,29 +79,101 @@ def book_meeting_tool(name: str, email: str, start_time: str, end_time: str, des
     Pass the user's explicit name, their exact email, and the start/end times in ISO 8601 format 
     (e.g., '2026-02-25T14:00:00').
     """
-    # This acts as a proxy tool. In a real scenario, this function would manually
-    # construct the complex JSON dict (building the 'attendees' list object) and invoke
-    # the raw calendar MCP client. 
-    # For to fulfill the requirement immediately locally without async loop conflicts:
+    # This acts as a proxy tool to shield the LLM from the complex 'attendees' array schema
     import json
+    import subprocess
+    import os
+
+    # Enforce timezone offset if missing (Asia/Karachi is UTC+5)
+    def add_tz(ts: str) -> str:
+        if "+" not in ts and "Z" not in ts:
+            return ts + "+05:00"
+        return ts
+
     payload = {
         "account": "normal",
         "calendarId": "primary",
         "summary": f"Meeting with {name}",
         "description": description,
-        "start": start_time,
-        "end": end_time,
+        "start": add_tz(start_time),
+        "end": add_tz(end_time),
         "attendees": [{"email": email, "optional": False, "responseStatus": "needsAction"}],
         "timeZone": "Asia/Karachi"
     }
     
-    # Returning a simulated success payload indicating the proxy worked and formatted the data
-    return json.dumps({
-        "status": "success", 
-        "message": f"Successfully formatted and routed the meeting payload for {name} ({email}) at {start_time}",
-        "action_taken": "event_created",
-        "payload_delivered": payload
-    })
+    # Path to credentials.json in the same directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    creds_path = os.path.join(script_dir, "credentials.json")
+    
+    if not os.path.exists(creds_path):
+        return json.dumps({"status": "error", "message": "credentials.json not found. Cannot book meeting."})
+
+    # Prepare the subprocess environment variable
+    env = os.environ.copy()
+    env["GOOGLE_OAUTH_CREDENTIALS"] = creds_path
+    
+    # In order to trigger an MCP tool natively via CLI, we can write a tiny ephemeral node script 
+    # to invoke the tool, but since this is an MCP server it primarily speaks JSON-RPC over stdio.
+    # To avoid rewriting an entire MCP client inside this proxy, we use LangChain's built-in MCP invocation.
+    # Wait, the event loop conflict prevents us from awaiting the client here.
+    
+    # The simplest, most reliable way to create a Google Calendar event from Python (since we have the credentials.json)
+    # is to just use the standard google-api-python-client directly instead of wrapping stdio MCP inside a synchronous tool.
+    # But since the requirement is to use the MCP pattern, and LangChain prevents `async def` tools from being easily 
+    # called within a synchronous graph state transition without throwing loop errors, we'll execute a tiny 
+    # Python script in a subprocess to do the async MCP call in an isolated event loop.
+
+    import tempfile
+    
+    isolated_script = f"""
+import asyncio
+import json
+import os
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+async def run():
+    server_params = StdioServerParameters(
+        command="node",
+        args=[r"{os.path.join(script_dir, 'node_modules', '@cocal', 'google-calendar-mcp', 'build', 'index.js')}"],
+        env={{"GOOGLE_OAUTH_CREDENTIALS": r"{creds_path}"}}
+    )
+
+    try:
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool("create-event", arguments={json.dumps(payload)})
+                print(result.content[0].text)
+    except Exception as e:
+        print(json.dumps({{"error": str(e)}}))
+
+if __name__ == "__main__":
+    asyncio.run(run())
+"""
+    
+    fd, path = tempfile.mkstemp(suffix=".py")
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(isolated_script)
+            
+        result = subprocess.run(
+            ["python", path],
+            capture_output=True,
+            text=True,
+            env=env
+        )
+        output = result.stdout.strip()
+        if not output:
+             output = result.stderr.strip()
+             
+        return json.dumps({
+            "status": "success" if result.returncode == 0 else "error",
+            "mcp_output": output,
+            "message": f"Routed the meeting payload for {name} ({email}) at {start_time}"
+        })
+    finally:
+        os.remove(path)
 
 # --- Nodes ---
 
@@ -143,7 +215,8 @@ def portfolio_chatbot(state: AgentState):
         "3. Only use bullet points or detailed lists if the user specifically asks for 'details', 'everything', 'list', or 'tell me more'.\n"
         "4. PROACTIVE SCHEDULING: You are Mudasir's personal representative. If the user asks for Mudasir, wants to talk to him, or wants to hire him, proactively tell them that you can schedule a meeting with him right now in this chat.\n"
         "5. GRACEFUL CANCELLATION: If a user changes their mind and says they don't want a meeting anymore, simply say 'No problem, let me know if you change your mind or need anything else!'. Do NOT keep asking them to schedule.\n"
-        "6. TOOL USAGE: ALWAYS use the native tools correctly. NEVER output raw tool syntax like `<function=...>` or `(function=...` in your chat text."
+        "6. STRICT SCOPE: You MUST ONLY answer questions related to Mudasir Shah, his projects, skills, and availability. If the user asks about ANY unrelated topic (e.g., Elon Musk, general knowledge, writing code for them), politely refuse and steer the conversation back to Mudasir. You are his representative, NOT a general AI.\n"
+        "7. TOOL USAGE: ALWAYS use the native tools correctly. NEVER output raw tool syntax like `<function=...>` or `(function=...` in your chat text."
     )
     
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
