@@ -16,6 +16,7 @@ from tools.implementation import (
     getProfile, listProjects, explainProject, getAvailability, analyzeJobFit
 )
 from calendar_mcp import get_calendar_tools
+from meet_mcp import get_meet_tools
 
 load_dotenv()
 
@@ -73,11 +74,12 @@ portfolio_tools = [
 from calendar_mcp import get_calendar_tools
 
 @tool
-def book_meeting_tool(name: str, email: str, start_time: str, end_time: str, description: str = "") -> str:
+def book_meeting_tool(name: str, email: str, start_time: str, end_time: str, meet_link: str = "", description: str = "") -> str:
     """
     Schedules a meeting on Mudasir's calendar.
     Pass the user's explicit name, their exact email, and the start/end times in ISO 8601 format 
     (e.g., '2026-02-25T14:00:00').
+    IMPORTANT: Provide the 'meet_link' if you generated one using the create-meeting tool.
     """
     # This acts as a proxy tool to shield the LLM from the complex 'attendees' array schema
     import json
@@ -96,18 +98,13 @@ def book_meeting_tool(name: str, email: str, start_time: str, end_time: str, des
         "account": "normal",
         "calendarId": "primary",
         "summary": f"Meeting with {name}",
-        "description": description,
+        "description": f"{description}\n\nGoogle Meet Link: {meet_link}",
+        "location": meet_link,
         "start": add_tz(start_time),
         "end": add_tz(end_time),
         "attendees": [{"email": email, "optional": False, "responseStatus": "needsAction"}],
         "timeZone": "Asia/Karachi",
-        "sendUpdates": "all",
-        "conferenceData": {
-            "createRequest": {
-                "requestId": f"meet-{uuid.uuid4().hex}",
-                "conferenceSolutionKey": {"type": "hangoutsMeet"}
-            }
-        }
+        "sendUpdates": "all"
     }
     
     # Path to credentials.json in the same directory
@@ -152,7 +149,9 @@ async def run():
         async with stdio_client(server_params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                result = await session.call_tool("create-event", arguments={json.dumps(payload)})
+                # Pass the payload directly as a dictionary
+                payload = json.loads(r'''{json.dumps(payload)}''')
+                result = await session.call_tool("create-event", arguments=payload)
                 print(result.content[0].text)
     except Exception as e:
         print(json.dumps({{"error": str(e)}}))
@@ -193,11 +192,11 @@ def identify_intent(state: AgentState):
     user_input = state["messages"][-1].content
     
     system_prompt = (
-        "Analyze the user's message to decide the intent. Respond with exactly one word: 'portfolio' or 'calendar'.\n"
+        "Analyze the user's message to decide the intent. Respond with exactly one word: 'portfolio' or 'meet'.\n"
         "RULES:\n"
         "1. ESCAPE HATCH (CRITICAL): If the user says 'no', 'nope', 'nevermind', 'stop', 'cancel', or indicates they do NOT want a meeting anymore -> 'portfolio'.\n"
-        "2. If the user mentions meetings, tomorrow, scheduling, booking, time, or calendar -> 'calendar'.\n"
-        "3. If the user is just providing their name, email, or a time (answering a follow-up question to book a meeting) -> 'calendar'.\n"
+        "2. If the user mentions meetings, tomorrow, scheduling, booking, time, or calendar -> 'meet'.\n"
+        "3. If the user is just providing their name, email, or a time (answering a follow-up question to book a meeting) -> 'meet'.\n"
         "4. If they ask about Mudasir's skills, projects, background, resume, or 'who is he' -> 'portfolio'."
     )
     
@@ -207,8 +206,8 @@ def identify_intent(state: AgentState):
     ])
     
     decision = response.content.lower().strip()
-    if 'calendar' in decision:
-        return {"active_agent": "calendar"}
+    if 'meet' in decision or 'calendar' in decision:
+        return {"active_agent": "meet"}
     return {"active_agent": "portfolio"}
 
 def portfolio_chatbot(state: AgentState):
@@ -249,49 +248,54 @@ def portfolio_chatbot(state: AgentState):
         
     return {"messages": [response], "trace": trace}
 
-async def calendar_chatbot(state: AgentState):
-    """Handles calendar-related inquiries."""
+async def meet_chatbot(state: AgentState):
+    """Handles calendar and meet-related inquiries."""
     trace = state.get("trace", {})
-    trace["active_agent"] = "Calendar Agent"
+    trace["active_agent"] = "Meet Agent"
     
-    # Instead of forcing the LLM to learn the complex create-event schema, 
-    # we give it our simple proxy tool, and keep ONLY read-only MCP tools
-    tools = await get_calendar_tools()
-    read_only_mcp_tools = [t for t in tools if t.name in ["list-calendars", "list-events"]]
+    # We combine read-only Calendar MCP tools, the Google Meet MCP tools, and our proxy book_meeting tool
+    cal_tools = await get_calendar_tools()
+    read_only_cal = [t for t in cal_tools if t.name in ["list-calendars", "list-events"]]
     
-    # Combine read-only MCP tools with our robust proxy tool
-    calendar_agent_tools = read_only_mcp_tools + [book_meeting_tool]
+    meet_mcp_tools = await get_meet_tools()
     
-    if not calendar_agent_tools:
+    meet_agent_tools = read_only_cal + meet_mcp_tools + [book_meeting_tool]
+    
+    if not meet_agent_tools:
         return {
             "messages": [AIMessage(content="I'm sorry, I cannot access the calendar right now because the credentials are not set up.")],
             "trace": trace
         }
     
-    llm_with_tools = llm.bind_tools(calendar_agent_tools)
+    llm_with_tools = llm.bind_tools(meet_agent_tools)
     now = datetime.now()
     current_time = now.strftime("%A, %B %d, %Y %I:%M %p")
     
     system_prompt = (
         f"You are 'Noir AI', Mudasir Shah's high-end personal concierge and AI Assistant.\n"
         f"Current Time: {current_time} (PKT - Pakistan Standard Time, UTC+5)\n"
-        "Manage Mudasir's schedule and book meetings using the 'book_meeting_tool'.\n"
+        "Manage Mudasir's schedule and book meetings.\n"
         "*** CRITICAL RULE FOR BOOKING MEETINGS ***:\n"
-        "BEFORE you can ever call the 'book_meeting_tool', you ABSOLUTELY MUST have gathered ALL 3 of these details from the user:\n"
+        "BEFORE you can ever book a meeting, you ABSOLUTELY MUST have gathered ALL 3 of these details from the user:\n"
         "  1. Their Name\n"
         "  2. Their Email Address\n"
         "  3. The proposed time and date\n"
-        "ESCAPE HATCH: If the user says 'no', 'nevermind', or clearly refuses to provide their email/details, DO NOT keep asking. Acknowledge their refusal politely and stop asking for details.\n"
         "CRITICAL SEQUENTIAL GATHERING: If multiple details are missing, DO NOT ask for all of them at once. "
-        "Ask for them ONE BY ONE. For example, if you have nothing, just ask 'What is your name?'. Once they reply, ask 'What is your email?', and finally 'What time would you like to meet?'.\n"
-        "ALWAYS check the conversation history first. Do not ask for information they have already provided.\n"
+        "Ask for them ONE BY ONE.\n"
+        "DATE CONFIRMATION RULE: Before booking, ALWAYS repeat the final date and time back to the user to confirm. ONLY proceed AFTER they explicitly agree.\n"
+        "======================================\n"
+        "*** MEET AND CALENDAR WORKFLOW ***\n"
+        "Once the user has confirmed the time, name, and email, follow these exact steps sequentially:\n"
+        "1. FIRST, call the `create_meeting` tool. REQUIRED ARGS: `summary` (meeting title), `start_time` (ISO format), `end_time` (ISO format). It will return a Google Meet Link.\n"
+        "2. SECOND, call the `book_meeting_tool`. YOU MUST PASS THE MEET LINK GENERATED IN STEP 1 INTO THE `meet_link` argument.\n"
+        "======================================\n"
+        "ESCAPE HATCH: If the user says 'no', 'nevermind', or clearly refuses to provide their email/details, DO NOT keep asking. Acknowledge their refusal politely and stop asking for details.\n"
         "TIMEZONE CLARIFICATION: If the user suggests a time but doesn't specify a timezone, gently ask: 'Are you referring to [TIME] EST, or my local time (PKT)?'\n"
-        "DATE CONFIRMATION RULE: Before calling the `book_meeting_tool`, ALWAYS repeat the final date and time back to the user to confirm (e.g., 'I have you down for Feb 26th at 2:00 PM PKT. Should I go ahead and lock this in?'). ONLY call the tool AFTER they explicitly agree.\n"
         "TOOL USAGE WARNING: NEVER type raw tool calls like `<function=...>` or `(function=...` in your text.\n"
-        "HALLUCINATION PREVENTION: DO NOT EVER CLAIM you have scheduled or booked a meeting UNTIL you have successfully called the `book_meeting_tool` and received a success confirmation back. Do NOT hallucinate scheduling it in text without making the API tool call.\n"
-        "MEETING LINK EXPORT: The `book_meeting_tool` will automatically generate a Google Meet link and send an email invite. Once booked, parse the tool response for the Google Meet link, and explicitly provide it to the user in your final message!\n"
-        "LANGUAGE: ALWAYS RESPOND IN ENGLISH. Even if the user speaks Urdu, Hindi, or another language, YOU MUST REPLY IN PERFECT, PROFESSIONAL ENGLISH.\n"
-        "ERROR RECOVERY: If a tool returns an error (e.g., slot unavailable), do not panic or show raw JSON. Apologize gracefully, explain the time might be taken, and ask for an alternative time.\n"
+        "HALLUCINATION PREVENTION: DO NOT EVER CLAIM you have scheduled or booked a meeting UNTIL you have successfully called the `book_meeting_tool`.\n"
+        "MEETING LINK EXPORT: Once booked, explicitly provide the Google Meet link in your final message to the user!\n"
+        "LANGUAGE: ALWAYS RESPOND IN ENGLISH.\n"
+        "ERROR RECOVERY: If a tool returns an error, apologize gracefully and ask for an alternative time.\n"
         "IMPORTANT: When calling calendar tools, ALWAYS use the account name 'normal' and calendar ID 'primary'.\n"
         "TONE & FORMAT INSTRUCTIONS:\n"
         "1. Speak confidently, professionally, and warmly. Think of yourself as a high-end concierge.\n"
@@ -317,8 +321,8 @@ async def calendar_chatbot(state: AgentState):
 # --- Conditional Edges ---
 
 def route_decision(state: AgentState):
-    if state["active_agent"] == "calendar":
-        return "calendar_chatbot"
+    if state["active_agent"] == "meet":
+        return "meet_chatbot"
     return "portfolio_chatbot"
 
 def should_continue(state: AgentState):
@@ -334,27 +338,28 @@ async def create_portfolio_graph():
     
     workflow.add_node("identify_intent", identify_intent)
     workflow.add_node("portfolio_chatbot", portfolio_chatbot)
-    workflow.add_node("calendar_chatbot", calendar_chatbot)
+    workflow.add_node("meet_chatbot", meet_chatbot)
     
     # Tool nodes - Combine all tools
     cal_tools = await get_calendar_tools()
-    read_only_mcp_tools = [t for t in cal_tools if t.name in ["list-calendars", "list-events"]]
-    all_tools = portfolio_tools + read_only_mcp_tools + [book_meeting_tool]
+    read_only_cal = [t for t in cal_tools if t.name in ["list-calendars", "list-events"]]
+    meet_mcp_tools = await get_meet_tools()
+    all_tools = portfolio_tools + read_only_cal + meet_mcp_tools + [book_meeting_tool]
     workflow.add_node("tools", ToolNode(all_tools))
     
     workflow.add_edge(START, "identify_intent")
-    workflow.add_conditional_edges("identify_intent", route_decision, ["portfolio_chatbot", "calendar_chatbot"])
+    workflow.add_conditional_edges("identify_intent", route_decision, ["portfolio_chatbot", "meet_chatbot"])
     
     workflow.add_conditional_edges("portfolio_chatbot", should_continue, ["tools", END])
-    workflow.add_conditional_edges("calendar_chatbot", should_continue, ["tools", END])
+    workflow.add_conditional_edges("meet_chatbot", should_continue, ["tools", END])
     
     # After tools run, we need to return to the active agent
     def return_to_agent(state: AgentState):
-        if state["active_agent"] == "calendar":
-            return "calendar_chatbot"
+        if state["active_agent"] == "meet":
+            return "meet_chatbot"
         return "portfolio_chatbot"
         
-    workflow.add_conditional_edges("tools", return_to_agent, ["portfolio_chatbot", "calendar_chatbot"])
+    workflow.add_conditional_edges("tools", return_to_agent, ["portfolio_chatbot", "meet_chatbot"])
     
     memory = MemorySaver()
     return workflow.compile(checkpointer=memory)
