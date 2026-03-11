@@ -118,8 +118,10 @@ def book_meeting_tool(name: str, email: str, start_time: str, end_time: str, des
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     creds_path = os.path.join(script_dir, "credentials.json")
-    token_path = os.path.join(
-        os.path.expanduser("~"), ".config", "google-calendar-mcp", "tokens.json"
+    # GOOGLE_TOKEN_PATH env var lets you point to the token on Railway's persistent disk
+    token_path = os.getenv(
+        "GOOGLE_TOKEN_PATH",
+        os.path.join(os.path.expanduser("~"), ".config", "google-calendar-mcp", "tokens.json"),
     )
 
     if not os.path.exists(creds_path):
