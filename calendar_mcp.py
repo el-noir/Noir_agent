@@ -9,8 +9,5 @@ async def get_calendar_tools() -> List[BaseTool]:
     """
     return []
 
-        traceback.print_exc()
-        return []
-
 # Tools are retrieved asynchronously via get_calendar_tools()
 
