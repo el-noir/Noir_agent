@@ -28,20 +28,30 @@ class AgentState(TypedDict):
     active_agent: str  # "portfolio" | "meet"
 
 # ---------------------------------------------------------------------------
-# LLM — llama-3.3-70b-versatile for tool calling; llama-3.1-8b-instant for cheap routing
+# LLM — lazy initialization so the app starts even without GROQ_API_KEY set
 # ---------------------------------------------------------------------------
-llm = ChatGroq(
-    model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-    groq_api_key=os.getenv("GROQ_API_KEY"),
-    temperature=0,
-)
+_llm = None
+_llm_router = None
 
-# Fast, low-cost model used only for the intent classifier (no tool calling needed)
-llm_router = ChatGroq(
-    model="llama-3.1-8b-instant",
-    groq_api_key=os.getenv("GROQ_API_KEY"),
-    temperature=0,
-)
+def _get_llm():
+    global _llm
+    if _llm is None:
+        _llm = ChatGroq(
+            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            groq_api_key=os.getenv("GROQ_API_KEY"),
+            temperature=0,
+        )
+    return _llm
+
+def _get_llm_router():
+    global _llm_router
+    if _llm_router is None:
+        _llm_router = ChatGroq(
+            model="llama-3.1-8b-instant",
+            groq_api_key=os.getenv("GROQ_API_KEY"),
+            temperature=0,
+        )
+    return _llm_router
 
 # ---------------------------------------------------------------------------
 # Portfolio tools (pure Python — no MCP, no async)
@@ -335,7 +345,7 @@ def identify_intent(state: AgentState) -> dict:
         "a specific time, or a date.\n"
         "Choose 'portfolio' for everything else."
     )
-    response = llm_router.invoke([
+    response = _get_llm_router().invoke([
         SystemMessage(content=system_prompt),
         HumanMessage(content=messages[-1].content),
     ])
@@ -347,7 +357,7 @@ async def portfolio_chatbot(state: AgentState) -> dict:
     """Handles portfolio Q&A using pure-Python tools."""
     from langchain_core.messages import ToolMessage
 
-    llm_with_tools = llm.bind_tools(portfolio_tools)
+    llm_with_tools = _get_llm().bind_tools(portfolio_tools)
     portfolio_tool_names = {t.name for t in portfolio_tools}
 
     # Defensive: remove any AI messages that contain non-portfolio tool calls
@@ -442,7 +452,7 @@ async def meet_chatbot(state: AgentState) -> dict:
             "trace": trace,
         }
 
-    llm_with_tools = llm.bind_tools(meet_agent_tools)
+    llm_with_tools = _get_llm().bind_tools(meet_agent_tools)
     current_time = datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
 
     system_prompt = (

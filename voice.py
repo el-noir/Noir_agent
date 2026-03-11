@@ -13,12 +13,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-_groq = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+_groq_client = None
+
+def _get_groq():
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    return _groq_client
 
 
 async def transcribe_audio(audio_bytes: bytes, filename: str = "recording.webm") -> str:
     """Transcribe audio bytes using Groq Whisper and return the transcript text."""
-    transcription = await _groq.audio.transcriptions.create(
+    transcription = await _get_groq().audio.transcriptions.create(
         file=(filename, audio_bytes),
         model="whisper-large-v3-turbo",
         response_format="text",
