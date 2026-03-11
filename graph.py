@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 from typing import Annotated, TypedDict, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
@@ -29,10 +29,17 @@ class AgentState(TypedDict):
     active_agent: str  # "portfolio" | "meet"
 
 # ---------------------------------------------------------------------------
-# LLM — llama-3.3-70b-versatile is Groq's current recommended model for tool calling
+# LLM — llama-3.3-70b-versatile for tool calling; llama-3.1-8b-instant for cheap routing
 # ---------------------------------------------------------------------------
 llm = ChatGroq(
     model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    temperature=0,
+)
+
+# Fast, low-cost model used only for the intent classifier (no tool calling needed)
+llm_router = ChatGroq(
+    model="llama-3.1-8b-instant",
     groq_api_key=os.getenv("GROQ_API_KEY"),
     temperature=0,
 )
@@ -142,16 +149,83 @@ def book_meeting_tool(name: str, email: str, start_time: str, end_time: str, des
         cred_info = json.load(f)
     web = cred_info.get("web") or cred_info.get("installed", {})
 
+    # Pass expiry so Credentials.valid / .expired work correctly
+    expiry_date_ms = raw_token.get("expiry_date")
+    token_expiry = (
+        datetime.utcfromtimestamp(expiry_date_ms / 1000) if expiry_date_ms else None
+    )
+
     creds = Credentials(
         token=raw_token.get("access_token"),
         refresh_token=raw_token.get("refresh_token"),
         token_uri="https://oauth2.googleapis.com/token",
         client_id=web.get("client_id"),
         client_secret=web.get("client_secret"),
+        expiry=token_expiry,
     )
+
+    # Auto-refresh if expired and persist the new token so future calls don't need to refresh
+    if not creds.valid:
+        try:
+            from google.auth.transport.requests import Request as GRequest
+            creds.refresh(GRequest())
+            if isinstance(token_data, dict) and "normal" in token_data:
+                token_data["normal"]["access_token"] = creds.token
+                if creds.expiry:
+                    _epoch = datetime(1970, 1, 1)
+                    token_data["normal"]["expiry_date"] = int(
+                        (creds.expiry - _epoch).total_seconds() * 1000
+                    )
+                with open(token_path, "w") as _tf:
+                    json.dump(token_data, _tf, indent=2)
+        except Exception as _re:
+            return json.dumps({"status": "error", "message": f"Session expired — please re-authenticate. ({_re})"})
 
     try:
         service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+
+        # Working-hours guard: 9 AM – 6 PM PKT
+        try:
+            _pkt = timezone(timedelta(hours=5))
+            _dt_start = datetime.fromisoformat(add_tz(start_time))
+            _hour_pkt = _dt_start.astimezone(_pkt).hour
+            if _hour_pkt < 9 or _hour_pkt >= 18:
+                _fmt = _dt_start.astimezone(_pkt).strftime("%I:%M %p PKT")
+                return json.dumps({
+                    "status": "error",
+                    "message": (
+                        f"The requested time ({_fmt}) is outside Mudasir's available hours "
+                        f"(9:00 AM \u2013 6:00 PM PKT). Please suggest a time within working hours."
+                    ),
+                })
+        except (ValueError, TypeError):
+            pass  # unparseable timestamp — let Calendar API validate
+
+        # Conflict check — skip silently if the calendar query itself fails
+        try:
+            _existing = service.events().list(
+                calendarId="primary",
+                timeMin=add_tz(start_time),
+                timeMax=add_tz(end_time),
+                singleEvents=True,
+                orderBy="startTime",
+            ).execute()
+            _conflicts = [
+                e for e in _existing.get("items", []) if e.get("status") != "cancelled"
+            ]
+            if _conflicts:
+                _titles = ", ".join(
+                    e.get("summary", "an existing event") for e in _conflicts[:2]
+                )
+                return json.dumps({
+                    "status": "error",
+                    "message": (
+                        f"Mudasir already has a booking at that time ({_titles}). "
+                        f"Could you suggest a different time?"
+                    ),
+                })
+        except HttpError:
+            pass  # proceed — let insert handle any conflict
 
         event = {
             "summary": f"Meeting with {name}",
@@ -246,14 +320,14 @@ def identify_intent(state: AgentState) -> dict:
                     return {"active_agent": "meet"}
         break  # only inspect the most recent AI turn
 
-    # Priority 4: LLM classification
+    # Priority 4: LLM classification (uses cheap small model — no tools needed)
     system_prompt = (
         "Classify the user's message as 'portfolio' or 'meet'. Reply with exactly one lowercase word.\n"
         "Choose 'meet' if the user mentions scheduling, booking, meeting, appointment, calendar, "
         "a specific time, or a date.\n"
         "Choose 'portfolio' for everything else."
     )
-    response = llm.invoke([
+    response = llm_router.invoke([
         SystemMessage(content=system_prompt),
         HumanMessage(content=messages[-1].content),
     ])
@@ -306,7 +380,8 @@ async def portfolio_chatbot(state: AgentState) -> dict:
         "6. TONE: Confident, warm, and professional."
     )
 
-    messages = [SystemMessage(content=system_prompt)] + safe_messages
+    # Trim history to keep token usage low — system prompt + last 12 exchanges
+    messages = [SystemMessage(content=system_prompt)] + safe_messages[-12:]
     response = await llm_with_tools.ainvoke(messages)
 
     trace = state.get("trace", {})
@@ -383,7 +458,8 @@ async def meet_chatbot(state: AgentState) -> dict:
         "- Always reply in English."
     )
 
-    messages = [SystemMessage(content=system_prompt)] + state["messages"]
+    # Trim history to keep token usage low — system prompt + last 12 exchanges
+    messages = [SystemMessage(content=system_prompt)] + state["messages"][-12:]
     response = await llm_with_tools.ainvoke(messages)
 
     if response.tool_calls:

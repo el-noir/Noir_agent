@@ -59,8 +59,13 @@ async def orchestrate_query(user_message: str, session_id: str = "default_sessio
     except Exception as e:
         import traceback
         traceback.print_exc()
+        err_str = str(e)
+        if "rate_limit_exceeded" in err_str or "429" in err_str:
+            friendly = "I'm handling a lot of requests right now — please try again in a moment."
+        else:
+            friendly = f"System Error: {err_str}"
         return {
-            "response": f"System Error: {str(e)}",
+            "response": friendly,
             "trace": {
                 "intent_detected": "Error",
                 "tool_selected": "None",
