@@ -48,6 +48,13 @@ Thumbs.db
 
 # FastAPI / Uvicorn
 logs/
+
+# Debug / trace dumps
+debug_log.txt
+error.txt
+mcp_test_log.txt
+trace_output.txt
+latest_booking_error.txt
 *.log
 
 credentials.json

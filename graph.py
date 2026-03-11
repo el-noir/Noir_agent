@@ -16,7 +16,6 @@ from tools.implementation import (
     getProfile, listProjects, explainProject, getAvailability, analyzeJobFit
 )
 from calendar_mcp import get_calendar_tools
-from meet_mcp import get_meet_tools
 
 load_dotenv()
 
