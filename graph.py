@@ -275,9 +275,13 @@ def book_meeting_tool(name: str, email: str, start_time: str, end_time: str, des
 # Keywords that indicate the user wants to cancel / exit the booking flow
 _CANCEL_KEYWORDS = {"no", "nope", "nevermind", "never mind", "stop", "cancel", "forget it"}
 
-# Words that count as an affirmative reply
-_AFFIRMATIVE = {"yes", "sure", "ok", "okay", "yeah", "yep", "please", "alright",
-                "go ahead", "sounds good", "let's", "lets", "absolutely", "definitely"}
+# Words that count as an affirmative reply (also covers voice STT variants and common non-English)
+_AFFIRMATIVE = {
+    "yes", "sure", "ok", "okay", "yeah", "yep", "please", "alright",
+    "go ahead", "sounds good", "let's", "lets", "absolutely", "definitely",
+    # Non-English affirmatives (user may speak French, Urdu, etc.)
+    "oui", "ja", "si", "sí", "da", "haan", "bilkul", "zaroor", "ji", "hai",
+}
 
 # Phrases the portfolio agent uses when offering to book a meeting
 _MEETING_OFFER_PHRASES = (
@@ -310,14 +314,17 @@ def identify_intent(state: AgentState) -> dict:
         return {"active_agent": "meet"}
 
     # Priority 3: user replied affirmatively to a meeting offer from the portfolio agent
+    # Strip punctuation so STT output like "Yes." or "Sure!" still matches
+    import re as _re
+    last_human_clean = _re.sub(r"[^\w\s]", "", last_human).strip()
     for msg in reversed(messages[:-1]):
         if isinstance(msg, AIMessage):
             ai_lower = msg.content.lower()
             if any(phrase in ai_lower for phrase in _MEETING_OFFER_PHRASES):
-                words = set(last_human.split())
-                if words & _AFFIRMATIVE or last_human in _AFFIRMATIVE:
+                words = set(last_human_clean.split())
+                if words & _AFFIRMATIVE or last_human_clean in _AFFIRMATIVE:
                     return {"active_agent": "meet"}
-        break  # only inspect the most recent AI turn
+            break  # only inspect the most recent AI turn — must be inside isinstance check
 
     # Priority 4: LLM classification (uses cheap small model — no tools needed)
     system_prompt = (
@@ -428,17 +435,21 @@ async def meet_chatbot(state: AgentState) -> dict:
         "  3. Preferred date and time\n\n"
         "STRICT RULES for collection:\n"
         "  - NEVER invent, assume, or guess any missing detail. If it hasn't been explicitly stated, ask for it.\n"
-        "  - Only proceed to booking once ALL 3 are confirmed in this conversation.\n"
-        "  - If the user provides all 3 in one message, you may book immediately — otherwise collect one at a time.\n\n"
+        "  - NEVER discard a detail the user has already given — carry name and email across every turn.\n"
+        "  - You MAY ask about the meeting topic or purpose — this helps Mudasir prepare. But ask it only ONCE and only after you have the name.\n"
+        "  - Only proceed to booking once ALL 3 required details are confirmed in this conversation.\n"
+        "  - If the user provides all 3 in one message, book immediately — do not ask again.\n\n"
         "Timezone:\n"
         "  - ALWAYS assume PKT (UTC+5) unless the user explicitly states otherwise.\n"
-        "  - NEVER ask the user about timezones or date formats — just accept natural language like '18 march 9pm'.\n\n"
+        "  - NEVER ask the user about timezones or date formats — just accept natural language like '18 march 9pm'.\n"
+        "  - Use the EXACT time the user states — do NOT round, adjust, or shift. 'around 3 pm' means 3:00 PM.\n"
+        "  - Email via voice: if the user says 'at the rate of' or 'at sign', treat it as '@'.\n\n"
 
         "=== BOOKING ===\n"
         "When ALL 3 details are confirmed, call book_meeting_tool ONCE — do NOT ask for confirmation first.\n"
         "  - Convert the time to ISO 8601 with PKT offset: e.g. 2026-03-18T21:00:00+05:00\n"
         "  - Default duration: 1 hour.\n"
-        "  - Set description to a brief note about the conversation context if relevant.\n\n"
+        "  - Set description to the meeting topic/purpose if the user mentioned one; otherwise leave blank.\n\n"
 
         "=== ON SUCCESS ===\n"
         "Reply warmly and concisely with:\n"
@@ -447,8 +458,9 @@ async def meet_chatbot(state: AgentState) -> dict:
         "  - A note that a calendar invite has been sent to their email\n\n"
 
         "=== ON ERROR ===\n"
-        "Do NOT discard name/email already collected. Apologize briefly, ask only for a corrected time, "
-        "then retry with the original name and email.\n\n"
+        "Working hours error (9 AM–6 PM PKT): Do NOT apologize repeatedly. Say once that the time is outside working hours, "
+        "suggest a concrete alternative time (e.g. '3:00 PM PKT'), and ask the user to confirm or pick a different time.\n"
+        "Other errors: Keep name/email already collected. Ask only for missing or corrected info, then retry immediately.\n\n"
 
         "=== FINAL RULES ===\n"
         "- Never claim the meeting is booked until the tool returns status='success'.\n"

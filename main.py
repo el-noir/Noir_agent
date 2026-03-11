@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import os
 
 from orchestrator import orchestrate_query
+from voice import transcribe_audio, synthesize_speech
 
 # Load environment variables
 load_dotenv()
@@ -49,6 +50,30 @@ async def chat_endpoint(request: ChatRequest):
             "session_id": request.session_id,
             "trace": {"error": True, "detail": str(e)}
         }
+
+@app.post("/voice")
+async def voice_endpoint(
+    audio: UploadFile = File(...),
+    session_id: str = Form("default"),
+):
+    """Accept an audio file, transcribe it, run through the AI graph, and return TTS audio."""
+    audio_bytes = await audio.read()
+    filename = audio.filename or "recording.webm"
+
+    transcript = await transcribe_audio(audio_bytes, filename=filename)
+
+    result = await orchestrate_query(transcript, session_id=session_id)
+
+    audio_b64 = await synthesize_speech(result["response"])
+
+    return {
+        "transcript": transcript,
+        "response": result["response"],
+        "audio_base64": audio_b64,
+        "session_id": session_id,
+        "trace": result["trace"],
+    }
+
 
 if __name__ == "__main__":
     import uvicorn
