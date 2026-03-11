@@ -1,6 +1,7 @@
+import re
 import time
 from graph import create_portfolio_graph
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 import os
 
 # Lazy graph initialization to avoid import-time loop conflicts
@@ -40,6 +41,25 @@ async def orchestrate_query(user_message: str, session_id: str = "default_sessio
         result = await app.ainvoke(inputs, config=config)
         
         final_answer = result["messages"][-1].content
+
+        # Strip any raw LLM function-call artifacts Llama occasionally leaks into content
+        final_answer = re.sub(r'<function=\w+>.*?</function>', '', final_answer, flags=re.DOTALL).strip()
+
+        # Fallback: if the last message was a bare tool-call with no text content, walk
+        # backwards to find the last proper text reply
+        if not final_answer:
+            for msg in reversed(result["messages"][:-1]):
+                if (
+                    isinstance(msg, AIMessage)
+                    and msg.content
+                    and msg.content.strip()
+                    and not getattr(msg, "tool_calls", None)
+                ):
+                    final_answer = msg.content
+                    break
+        if not final_answer:
+            final_answer = "I'm here to help! What would you like to know?"
+
         trace = result.get("trace", {
             "intent_detected": "Unknown",
             "tool_selected": "None",
