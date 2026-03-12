@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, Form, Response, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -49,9 +49,6 @@ class ChatRequest(BaseModel):
 async def health_check():
     return {"status": "ok"}
 
-@app.options("/chat")
-async def chat_preflight(response: Response):
-    return Response(status_code=200)
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
