@@ -15,18 +15,34 @@ load_dotenv()
 
 app = FastAPI(title="Noir AI Service")
 
-# CORS — origins loaded exclusively from the ALLOWED_ORIGINS env var
+# CORS — origins loaded from ALLOWED_ORIGINS env var.
+# Strips surrounding quotes (Railway sometimes stores them literally)
+# and trailing slashes which would cause origin mismatches.
+def _parse_origins(raw: str) -> list[str]:
+    origins = []
+    for o in raw.split(","):
+        o = o.strip().strip('"\' ').rstrip("/")
+        if o:
+            origins.append(o)
+    return origins
+
 _raw = os.getenv("ALLOWED_ORIGINS", "")
-_allowed_origins = [o.strip() for o in _raw.split(",") if o.strip()]
+_allowed_origins = _parse_origins(_raw)
+
 if not _allowed_origins:
-    raise RuntimeError("ALLOWED_ORIGINS env var is not set. Set it to your frontend URL(s).")
-print(f"[CORS] Allowed origins: {_allowed_origins}")
+    # Fallback: allow all origins so the app stays functional even if env var is missing
+    print("[CORS] WARNING: ALLOWED_ORIGINS not set — falling back to allow all origins.")
+    _allowed_origins = ["*"]
+else:
+    print(f"[CORS] Allowed origins: {_allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_credentials=True,
+    allow_credentials="*" not in _allowed_origins,  # credentials=True only when origins are explicit
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 @app.on_event("startup")
