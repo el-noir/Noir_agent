@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -13,8 +13,11 @@ load_dotenv()
 
 app = FastAPI(title="Noir AI Service")
 
-# CORS — allow the deployed frontend origin + localhost for dev
-_allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")]
+# CORS — origins loaded exclusively from the ALLOWED_ORIGINS env var
+_raw = os.getenv("ALLOWED_ORIGINS", "")
+_allowed_origins = [o.strip() for o in _raw.split(",") if o.strip()]
+if not _allowed_origins:
+    raise RuntimeError("ALLOWED_ORIGINS env var is not set. Set it to your frontend URL(s).")
 print(f"[CORS] Allowed origins: {_allowed_origins}")
 app.add_middleware(
     CORSMiddleware,
@@ -31,6 +34,11 @@ class ChatRequest(BaseModel):
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+@app.options("/chat")
+async def chat_preflight(response: Response):
+    """Explicit preflight handler — ensures 200 even if the proxy 502s before middleware fires."""
+    return Response(status_code=200)
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
