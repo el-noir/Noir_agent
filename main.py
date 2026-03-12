@@ -14,10 +14,11 @@ load_dotenv()
 app = FastAPI(title="Noir AI Service")
 
 # CORS — allow the deployed frontend origin + localhost for dev
-_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+_allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")]
+print(f"[CORS] Allowed origins: {_allowed_origins}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in _allowed_origins],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
