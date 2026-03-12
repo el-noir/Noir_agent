@@ -4,14 +4,41 @@ from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
 import os
+import traceback
 
-from orchestrator import orchestrate_query
+from orchestrator import orchestrate_query, get_graph
 from voice import transcribe_audio, synthesize_speech
 
 # Load environment variables
 load_dotenv()
 
 app = FastAPI(title="Noir AI Service")
+
+# CORS — origins loaded exclusively from the ALLOWED_ORIGINS env var
+_raw = os.getenv("ALLOWED_ORIGINS", "")
+_allowed_origins = [o.strip() for o in _raw.split(",") if o.strip()]
+if not _allowed_origins:
+    raise RuntimeError("ALLOWED_ORIGINS env var is not set. Set it to your frontend URL(s).")
+print(f"[CORS] Allowed origins: {_allowed_origins}")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup_event():
+    """Pre-warm the LangGraph so the first request doesn't cold-start crash silently."""
+    print("[startup] Pre-warming LangGraph...")
+    try:
+        await get_graph()
+        print("[startup] LangGraph ready.")
+    except Exception as e:
+        print(f"[startup] ERROR: LangGraph failed to initialize: {e}")
+        traceback.print_exc()
+        # Don't crash the server — log it so Railway shows the real error
 
 # CORS — origins loaded exclusively from the ALLOWED_ORIGINS env var
 _raw = os.getenv("ALLOWED_ORIGINS", "")
