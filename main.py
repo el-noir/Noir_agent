@@ -47,15 +47,21 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Pre-warm the LangGraph so the first request doesn't cold-start crash silently."""
-    print("[startup] Pre-warming LangGraph...")
-    try:
-        await get_graph()
-        print("[startup] LangGraph ready.")
-    except Exception as e:
-        print(f"[startup] ERROR: LangGraph failed to initialize: {e}")
-        traceback.print_exc()
-        # Don't crash the server — log it so Railway shows the real error
+    """
+    Kick off LangGraph pre-warm as a background task so the /health endpoint
+    responds immediately — prevents Railway's healthcheck from timing out and
+    killing the container before the heavy imports finish loading.
+    """
+    async def _warm():
+        print("[startup] Pre-warming LangGraph in background...")
+        try:
+            await get_graph()
+            print("[startup] LangGraph ready.")
+        except Exception as e:
+            print(f"[startup] ERROR: LangGraph failed to initialize: {e}")
+            traceback.print_exc()
+
+    asyncio.create_task(_warm())
 
 class ChatRequest(BaseModel):
     message: str
