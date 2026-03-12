@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
 import os
+import asyncio
 import traceback
 
 from orchestrator import orchestrate_query, get_graph
@@ -40,20 +41,6 @@ async def startup_event():
         traceback.print_exc()
         # Don't crash the server — log it so Railway shows the real error
 
-# CORS — origins loaded exclusively from the ALLOWED_ORIGINS env var
-_raw = os.getenv("ALLOWED_ORIGINS", "")
-_allowed_origins = [o.strip() for o in _raw.split(",") if o.strip()]
-if not _allowed_origins:
-    raise RuntimeError("ALLOWED_ORIGINS env var is not set. Set it to your frontend URL(s).")
-print(f"[CORS] Allowed origins: {_allowed_origins}")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = "default"
@@ -64,23 +51,31 @@ async def health_check():
 
 @app.options("/chat")
 async def chat_preflight(response: Response):
-    """Explicit preflight handler — ensures 200 even if the proxy 502s before middleware fires."""
     return Response(status_code=200)
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
+    print(f"[/chat] received message (session={request.session_id}): {request.message[:80]}")
     try:
-        # Pass user message and session to orchestrator
-        result = await orchestrate_query(request.message, session_id=request.session_id)
-        
+        result = await asyncio.wait_for(
+            orchestrate_query(request.message, session_id=request.session_id),
+            timeout=55.0
+        )
+        print(f"[/chat] success, latency={result.get('trace', {}).get('total_latency_ms')}ms")
         return {
             "response": result["response"],
             "session_id": request.session_id,
             "trace": result["trace"]
         }
+    except asyncio.TimeoutError:
+        print("[/chat] TIMEOUT: orchestrate_query took >55s")
+        return {
+            "response": "The request timed out. Please try again.",
+            "session_id": request.session_id,
+            "trace": {"error": True, "detail": "timeout"}
+        }
     except Exception as e:
-        print(f"CRITICAL ERROR IN /chat: {str(e)}")
-        import traceback
+        print(f"[/chat] CRITICAL ERROR: {str(e)}")
         traceback.print_exc()
         return {
             "response": f"Internal Server Error: {str(e)}",
